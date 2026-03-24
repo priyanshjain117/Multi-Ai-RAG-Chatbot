@@ -258,3 +258,47 @@ else:
               <span class="source-badge {badge_class}">{badge_label}</span><br>
               🤖 {msg["content"]}
             </div>""", unsafe_allow_html=True)
+# Input row
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        user_input = st.text_input("Ask anything...", key="user_query", label_visibility="collapsed",
+                                   placeholder="e.g. What is agent memory? / Who is Elon Musk?")
+    with col2:
+        send = st.button("Send →", use_container_width=True)
+
+    if send and user_input.strip():
+        query = user_input.strip()
+        st.session_state.messages.append({"role": "user", "content": query})
+
+        with st.spinner("🔍 Routing & retrieving..."):
+            try:
+                final_output = None
+                used_source = "vectorstore"
+                for output in st.session_state.app.stream({"question": query}):
+                    for key, value in output.items():
+                        final_output = value
+                        used_source = value.get("source", "vectorstore")
+
+                # Extract answer text
+                docs = final_output.get("documents", [])
+                if docs:
+                    if hasattr(docs[0], "page_content"):
+                        answer = docs[0].page_content[:800]
+                    elif isinstance(docs[0], dict):
+                        answer = docs[0].get("page_content", str(docs[0]))[:800]
+                    else:
+                        answer = str(docs[0])[:800]
+                else:
+                    answer = "No relevant information found."
+
+                st.session_state.messages.append({"role": "bot", "content": answer, "source": used_source})
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    # Clear chat button
+    if st.session_state.messages:
+        if st.button("🗑️ Clear Chat"):
+            st.session_state.messages = []
+            st.rerun()
