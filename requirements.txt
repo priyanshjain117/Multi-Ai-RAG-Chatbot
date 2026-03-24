@@ -1,3 +1,4 @@
+ipykernel
 streamlit>=1.35.0
 langchain>=0.2.0
 langgraph>=0.1.0
