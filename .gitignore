@@ -2,3 +2,5 @@
 # Conda/Python virtual environment
 venv/
 .venv/
+
+.env
