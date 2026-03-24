@@ -228,3 +228,16 @@ def initialize_agent(groq_key, astra_tok, astra_id, urls):
     workflow.add_edge("wiki_search", END)
 
     return workflow.compile()
+
+    if load_btn:
+    if not groq_api_key or not astra_token or not astra_db_id:
+        st.error("Please fill in all API credentials in the sidebar.")
+    else:
+        urls = [u.strip() for u in urls_input.strip().split("\n") if u.strip()]
+        with st.spinner("🔧 Initializing agent — loading docs, building vectorstore..."):
+            try:
+                st.session_state.app = initialize_agent(groq_api_key, astra_token, astra_db_id, urls)
+                st.session_state.agent_ready = True
+                st.success("✅ Agent ready! Start chatting below.")
+            except Exception as e:
+                st.error(f"Initialization failed: {e}")
