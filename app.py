@@ -126,3 +126,15 @@ with st.sidebar:
     LangGraph · LangChain · AstraDB · Groq (Gemma2-9b) · HuggingFace Embeddings · Wikipedia
     </div>
     """, unsafe_allow_html=True)
+    # ── Main Area ─────────────────────────────────────────────────────────────────
+st.markdown('<div class="main-title">🤖 LangGraph Agent</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Agentic RAG · AstraDB Vectorstore · Wikipedia Fallback</div>', unsafe_allow_html=True)
+st.write("")
+
+# ── Session State ─────────────────────────────────────────────────────────────
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "agent_ready" not in st.session_state:
+    st.session_state.agent_ready = False
+if "app" not in st.session_state:
+    st.session_state.app = None
