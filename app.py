@@ -3,6 +3,9 @@ import os
 from typing import List
 from typing_extensions import TypedDict
 from typing import Literal
+import re
+import os
+os.environ.setdefault("USER_AGENT", "LangGraph-RAG-Agent/1.0")
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -181,10 +184,19 @@ def initialize_agent(groq_key, astra_tok, astra_id, urls):
         )
 
     structured_router = llm.with_structured_output(RouteQuery)
+
+    def extract_topic_from_url(url: str) -> str:
+        slug = url.rstrip("/").split("/")[-1]          # grab last path segment
+        slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug)  # strip date prefix if any
+        return slug.replace("-", " ")                  # "adv-attack-llm" → "adv attack llm"
+
+    topics = [extract_topic_from_url(u) for u in urls]
+    topics_str = ", ".join(topics)
+
     sys_prompt = (
-        "You are an expert at routing a user question to a vectorstore or wikipedia. "
-        "The vectorstore contains documents related to agents, prompt engineering, and adversarial attacks. "
-        "Use the vectorstore for questions on these topics. Otherwise, use wiki-search."
+        f"You are an expert at routing a user question to a vectorstore or wikipedia. "
+        f"The vectorstore contains documents related to: {topics_str}. "
+        f"Use the vectorstore for questions on these topics. Otherwise, use wiki-search."
     )
     route_prompt = ChatPromptTemplate.from_messages([("system", sys_prompt), ("human", "{question}")])
     question_router = route_prompt | structured_router
