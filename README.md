@@ -338,5 +338,3 @@ This repository demonstrates practical engineering patterns used in modern AI sy
 
 It reflects an understanding of how production-grade AI systems move beyond simple prompting into orchestrated, stateful, tool-enabled architectures.
 
-```
-```
