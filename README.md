@@ -1,4 +1,3 @@
-````md
 # LangGraph Agentic Retrieval Engine
 
 An agentic AI retrieval system that dynamically routes user intent between semantic vector retrieval and live knowledge search, then synthesizes grounded responses through a graph-orchestrated LLM workflow.
