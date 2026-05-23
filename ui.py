@@ -1,3 +1,4 @@
+import html as _html
 import streamlit as st
 
 
@@ -44,13 +45,16 @@ def load_css():
 
 def render_user_message(message):
 
+    safe_msg = _html.escape(message)
     st.markdown(
-        f'<div class="chat-user">🧑 {message}</div>',
+        f'<div class="chat-user">🧑 {safe_msg}</div>',
         unsafe_allow_html=True,
     )
 
 
 def render_bot_message(message, source):
+
+    safe_msg = _html.escape(message)
 
     badge = (
         "📖 WIKIPEDIA"
@@ -62,7 +66,7 @@ def render_bot_message(message, source):
         f"""
         <div class="chat-bot">
             <b>{badge}</b><br><br>
-            🤖 {message}
+            🤖 {safe_msg}
         </div>
         """,
         unsafe_allow_html=True,

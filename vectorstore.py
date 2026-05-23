@@ -1,4 +1,5 @@
-import cassio
+import os
+import shutil
 
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
@@ -12,24 +13,19 @@ from langchain_huggingface import (
     HuggingFaceEmbeddings,
 )
 
-from langchain_community.vectorstores.cassandra import (
-    Cassandra,
-)
+from langchain_community.vectorstores import Chroma
+
+# Local directory to persist the ChromaDB index
+CHROMA_DIR = os.path.join(os.path.dirname(__file__), ".chroma_db")
 
 
-def create_vectorstore(
-    urls,
-    astra_token,
-    astra_db_id,
-):
+def create_vectorstore(urls):
 
-    # AstraDB Init
-    cassio.init(
-        token=astra_token,
-        database_id=astra_db_id,
-    )
+    # Clear any existing index so we start fresh each init
+    if os.path.exists(CHROMA_DIR):
+        shutil.rmtree(CHROMA_DIR)
 
-    # Load Documents
+    # Load Documents from URLs
     docs = [
         WebBaseLoader(url).load()
         for url in urls
@@ -46,23 +42,16 @@ def create_vectorstore(
         chunk_overlap=50,
     )
 
-    doc_splits = splitter.split_documents(
-        docs_list
-    )
+    doc_splits = splitter.split_documents(docs_list)
 
     embeddings = HuggingFaceEmbeddings(
         model_name="all-MiniLM-L6-v2"
     )
 
-    vectorstore = Cassandra(
+    vectorstore = Chroma.from_documents(
+        documents=doc_splits,
         embedding=embeddings,
-        table_name="qa_mini_demo",
-        session=None,
-        keyspace=None,
+        persist_directory=CHROMA_DIR,
     )
-
-    vectorstore.delete_collection()
-
-    vectorstore.add_documents(doc_splits)
 
     return vectorstore

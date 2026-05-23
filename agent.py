@@ -9,16 +9,10 @@ from graph import build_graph
 
 def initialize_agent(
     groq_api_key,
-    astra_token,
-    astra_db_id,
     urls,
 ):
 
-    vectorstore = create_vectorstore(
-        urls,
-        astra_token,
-        astra_db_id,
-    )
+    vectorstore = create_vectorstore(urls)
 
     retriever = vectorstore.as_retriever()
 

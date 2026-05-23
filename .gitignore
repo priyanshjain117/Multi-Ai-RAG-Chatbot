@@ -8,3 +8,7 @@ venv/
 .vscode/
 
 ChatEnv
+temp_app.py
+
+# Local ChromaDB vector index (rebuilt on each init)
+.chroma_db/

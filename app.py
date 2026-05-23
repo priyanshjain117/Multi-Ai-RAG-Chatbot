@@ -1,4 +1,9 @@
+import os
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
+os.environ.setdefault("USER_AGENT", "LangGraph-RAG-Agent/1.0")
 
 from ui import (
     load_css,
@@ -33,16 +38,8 @@ with st.sidebar:
 
     groq_api_key = st.text_input(
         "Groq API Key",
+        value=os.getenv("GROQ_API_KEY", ""),
         type="password",
-    )
-
-    astra_token = st.text_input(
-        "AstraDB Token",
-        type="password",
-    )
-
-    astra_db_id = st.text_input(
-        "AstraDB ID",
     )
 
     st.divider()
@@ -78,7 +75,7 @@ st.markdown(
 
 if load_btn:
 
-    if not groq_api_key or not astra_token or not astra_db_id:
+    if not groq_api_key:
         st.error("Please fill all credentials.")
 
     else:
@@ -93,8 +90,6 @@ if load_btn:
             try:
                 st.session_state.app = initialize_agent(
                     groq_api_key,
-                    astra_token,
-                    astra_db_id,
                     urls,
                 )
 
@@ -157,17 +152,22 @@ else:
                     for _, value in output.items():
                         final_output = value
 
-                answer = final_output["generation"]
+                if final_output is None:
+                    st.error("The agent returned no response. Please try again.")
+                else:
+                    answer = final_output.get("generation", "")
+                    source = final_output.get("source", "vectorstore")
 
-                source = final_output["source"]
+                    if not answer:
+                        st.error("The agent returned an empty answer.")
+                    else:
+                        st.session_state.messages.append({
+                            "role": "bot",
+                            "content": answer,
+                            "source": source,
+                        })
 
-                st.session_state.messages.append({
-                    "role": "bot",
-                    "content": answer,
-                    "source": source,
-                })
-
-                st.rerun()
+                        st.rerun()
 
             except Exception as e:
                 st.error(f"Error: {e}")

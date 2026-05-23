@@ -2,6 +2,8 @@ from typing import List
 from typing_extensions import TypedDict
 
 from langchain_core.documents import Document
+import os
+os.environ.setdefault("USER_AGENT", "LangGraph-RAG-Agent/1.0")
 
 from langchain_groq import ChatGroq
 
@@ -18,7 +20,7 @@ class GraphState(TypedDict):
 
     generation: str
 
-    documents: List[str]
+    documents: List[Document]
 
     source: str
 
