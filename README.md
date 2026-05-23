@@ -138,6 +138,48 @@ sequenceDiagram
 
 ---
 
+## Agent Workflow Graph
+
+```mermaid
+flowchart TD
+    START([START]) --> INPUT[User Message]
+    INPUT --> STATE[Build GraphState]
+    STATE --> ROUTER{Router Agent}
+
+    ROUTER -->|vectorstore| RETRIEVE[Retrieval Node]
+    ROUTER -->|wiki_search| WIKI[Wikipedia Search Node]
+    ROUTER -->|general_chat| CHAT[General Chat Node]
+
+    RETRIEVE --> DOCS[Knowledge-base Documents]
+    WIKI --> WIKIDOCS[Wikipedia Documents]
+
+    DOCS --> CONTEXT[Context Assembly]
+    WIKIDOCS --> CONTEXT
+
+    HISTORY[Recent Session History] -. optional continuity .-> CHAT
+    HISTORY -. optional continuity .-> GENERATE[Generation Node]
+    CONTEXT --> GENERATE
+
+    CHAT --> RESPONSE[Assistant Response]
+    GENERATE --> RESPONSE
+    RESPONSE --> SAVE[Append Assistant Message]
+    SAVE --> END([END])
+
+    subgraph Agent Runtime
+        STATE
+        ROUTER
+        RETRIEVE
+        WIKI
+        CHAT
+        CONTEXT
+        GENERATE
+    end
+```
+
+This graph shows the agent's internal execution path: routing happens first, tool/context work happens only when needed, and recent chat history is added as optional prompt context after routing.
+
+---
+
 ## Query Routing Logic
 
 ```mermaid
