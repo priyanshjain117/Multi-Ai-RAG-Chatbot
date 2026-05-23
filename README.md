@@ -1,42 +1,62 @@
 # Agentic RAG Assistant
 
-An agentic AI retrieval system that dynamically routes user intent between semantic vector retrieval and live knowledge search, then synthesizes grounded responses through a graph-orchestrated LLM workflow.
+An agentic retrieval-augmented chat system that routes each user message to the right execution path, retrieves context when needed, and answers through a LangGraph-orchestrated workflow.
 
-Built using LangGraph, LangChain, Groq, AstraDB/Cassandra, Streamlit, and HuggingFace embeddings to demonstrate production-oriented AI systems engineering patterns.
+The app combines LangGraph, LangChain, Groq, AstraDB/Cassandra, Streamlit, HuggingFace embeddings, and Wikipedia search. It now also supports lightweight in-session chat memory, so follow-up questions can use recent conversation context without changing the routing decision or persisting anything after restart.
 
 ---
 
 ## Key Features
 
-### 🔀 Intelligent Multi-Source Routing
+### Intelligent Multi-Source Routing
 
-Implements a structured routing engine that classifies incoming queries and dynamically selects between vectorstore retrieval or live Wikipedia search, reducing unnecessary retrieval overhead and improving contextual accuracy.
+Incoming messages are classified into one of three paths:
 
-### 🧠 Graph-Orchestrated Agent Workflow
+- `vectorstore` for questions covered by the configured knowledge-base URLs.
+- `wiki_search` for factual or encyclopedic questions outside the knowledge base.
+- `general_chat` for greetings, thanks, casual conversation, and other small-talk messages.
 
-Uses a compiled LangGraph `StateGraph` to model retrieval and generation as deterministic execution nodes, enabling scalable multi-step AI orchestration instead of single-pass prompting.
+Routing is based on the current user message only, keeping tool selection predictable and avoiding history-driven misrouting.
 
-### 📚 Semantic Vector Retrieval Pipeline
+### Session-Only Conversational Context
 
-Builds a full ingestion pipeline that:
+The Streamlit session keeps recent chat turns in memory and passes a short history window to the answer-generation prompts. The model can use this only when it clearly helps with references, follow-up wording, or session preferences.
 
-- loads live web documents,
-- chunks content semantically,
-- generates embeddings,
-- and persists vectors into AstraDB/Cassandra for efficient similarity search.
+This memory is intentionally ephemeral:
 
-### ⚡ Grounded LLM Generation
+- cleared by the Clear Chat button,
+- cleared when returning to setup or reinitializing,
+- lost when the app/session restarts,
+- never written to AstraDB or disk.
 
-Combines retrieved context with constrained prompt engineering to generate context-aware responses while minimizing hallucinations through source-bounded generation.
+### Graph-Orchestrated Agent Workflow
 
-### 🖥️ Interactive AI Interface
+The core runtime is a compiled LangGraph `StateGraph`. Each node has a clear job: route, retrieve/search, assemble context, or generate an answer.
 
-Provides a lightweight Streamlit interface for:
+### Semantic Vector Retrieval Pipeline
 
-- runtime configuration,
-- dynamic URL ingestion,
-- session persistence,
-- and conversational interaction without requiring a dedicated frontend stack.
+The ingestion pipeline:
+
+- loads configured web pages,
+- splits them into semantic chunks,
+- embeds chunks with `sentence-transformers/all-MiniLM-L6-v2`,
+- stores vectors in AstraDB/Cassandra,
+- exposes a retriever for query-time similarity search.
+
+### Grounded LLM Generation
+
+Retrieved context is placed above the user question in a constrained prompt. For knowledge-base answers, the model is instructed to answer from the provided context and say it does not know when the context is insufficient.
+
+### Streamlit Runtime UI
+
+The UI supports:
+
+- credential setup from fields or `.env` upload,
+- dynamic knowledge-base URL configuration,
+- agent initialization,
+- chat rendering,
+- routing-source labels,
+- in-session message history.
 
 ---
 
@@ -44,142 +64,195 @@ Provides a lightweight Streamlit interface for:
 
 ```mermaid
 flowchart TD
+    U[User] --> UI[Streamlit UI]
+    UI -->|current message| G[LangGraph StateGraph]
+    UI -->|recent session messages| H[Ephemeral Chat History]
+    H --> G
 
-    User[User Interface - Streamlit] --> Query[User Query]
+    G --> R[Structured Router]
+    R -->|vectorstore| V[Retriever]
+    R -->|wiki_search| W[Wikipedia Tool]
+    R -->|general_chat| C[Direct Chat Node]
 
-    Query --> Graph[LangGraph StateGraph Engine]
+    V --> KB[(AstraDB / Cassandra Vectorstore)]
+    KB --> D[Retrieved KB Documents]
+    W --> WD[Wikipedia Context]
 
-    Graph --> Router[Structured Router Agent]
+    D --> GEN[Generation Node]
+    WD --> GEN
+    C --> OUT[Assistant Response]
+    GEN --> OUT
+    OUT --> UI
 
-    Router -->|Domain-Specific Query| Retriever[Vectorstore Retriever]
-
-    Router -->|General Knowledge Query| Wiki[Wikipedia Search Tool]
-
-    Retriever --> Context[Context Assembly Layer]
-
-    Wiki --> Context
-
-    Context --> Generator[LLM Response Generator]
-
-    Generator --> Response[Grounded AI Response]
-
-    Response --> User
-
-
-    subgraph Retrieval Infrastructure
-        Loader[Web Document Loader]
-        Splitter[Text Splitter]
-        Embedder[HuggingFace Embeddings]
-        VectorDB[AstraDB / Cassandra]
+    subgraph IDX[Indexing Pipeline]
+        URLS[Knowledge-base URLs]
+        LOAD[WebBaseLoader]
+        SPLIT[RecursiveCharacterTextSplitter]
+        EMB[HuggingFace Embeddings]
+        STORE[(AstraDB / Cassandra)]
+        URLS --> LOAD --> SPLIT --> EMB --> STORE
     end
 
-    Loader --> Splitter
-    Splitter --> Embedder
-    Embedder --> VectorDB
-    VectorDB --> Retriever
-````
-
----
-
-## Deep Dive — Engineering Challenges
-
-### `graph.py` — Core Agent Orchestration Engine
-
-The most technically complex module in the repository is `graph.py`, because it encapsulates the full execution lifecycle of the retrieval engine.
-
-Unlike traditional LLM applications that follow a linear:
-
-```text
-Input → Prompt → Response
+    STORE -. powers .-> KB
 ```
 
-this system implements a conditional graph-based workflow:
+---
 
-```text
-Input
-  ↓
-Routing
-  ↓
-Tool Selection
-  ↓
-Retrieval
-  ↓
-Context Assembly
-  ↓
-Grounded Generation
+## Runtime Workflow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Streamlit Session
+    participant Graph as LangGraph
+    participant Router
+    participant VS as Vectorstore
+    participant Wiki as Wikipedia
+    participant LLM as Groq LLM
+
+    User->>UI: Send message
+    UI->>UI: Append user message to session state
+    UI->>Graph: question + previous recent chat history
+    Graph->>Router: classify current question only
+
+    alt Knowledge-base query
+        Router-->>Graph: vectorstore
+        Graph->>VS: retrieve relevant chunks
+        VS-->>Graph: documents
+        Graph->>LLM: KB context + optional history + question
+    else External factual query
+        Router-->>Graph: wiki_search
+        Graph->>Wiki: search question
+        Wiki-->>Graph: article context
+        Graph->>LLM: Wikipedia context + optional history + question
+    else Small talk
+        Router-->>Graph: general_chat
+        Graph->>LLM: optional history + user message
+    end
+
+    LLM-->>Graph: generation
+    Graph-->>UI: answer + source
+    UI->>UI: Append assistant message to session state
+    UI-->>User: Render response
 ```
 
-### Primary Engineering Challenges
+---
 
-#### 1. Deterministic Multi-Path Execution
+## Query Routing Logic
 
-The engine must dynamically decide whether a query should:
+```mermaid
+flowchart LR
+    Q[Current User Message] --> FAST{Simple greeting?}
+    FAST -->|yes| GC[general_chat]
+    FAST -->|no| SR[Structured LLM Router]
 
-* retrieve from AstraDB,
-* or invoke Wikipedia search.
+    SR -->|KB topic| VS[vectorstore]
+    SR -->|world knowledge| WK[wiki_search]
+    SR -->|casual message| GC
 
-This is solved using:
+    VS --> RET[Retrieve Documents]
+    WK --> SEARCH[Search Wikipedia]
+    GC --> DIRECT[Direct Friendly Reply]
 
-* structured LLM outputs,
-* conditional LangGraph edges,
-* and typed routing schemas.
+    RET --> GEN[Generate Answer]
+    SEARCH --> GEN
+    DIRECT --> DONE[Return Response]
+    GEN --> DONE
+```
+
+Routing deliberately ignores chat history. History is only added later inside answer prompts, where it can help with continuity but cannot steer datasource selection.
 
 ---
 
-#### 2. Stateful Context Propagation
+## Session Memory Design
 
-Each graph node requires access to shared execution state:
+```mermaid
+flowchart TD
+    MESSAGES[st.session_state.messages] --> FILTER[Drop current message]
+    FILTER --> CLEAN[Keep user and assistant text only]
+    CLEAN --> LIMIT[Take latest 8 messages]
+    LIMIT --> PROMPT[Optional history block in prompt]
 
-* question,
-* retrieved documents,
-* source metadata,
-* generated output.
+    PROMPT --> RULES{Use only if helpful?}
+    RULES -->|yes| ANSWER[Resolve follow-ups and references]
+    RULES -->|no| CURRENT[Answer current question normally]
 
-The implementation uses a typed `GraphState` object to maintain deterministic state transitions across nodes.
+    CLEAR[Clear Chat / Back to Setup / Reinit / Restart] --> EMPTY[History removed]
+```
 
----
-
-#### 3. Context-Constrained Generation
-
-The generation node synthesizes answers strictly from retrieved context rather than allowing unconstrained model generation.
-
-This architecture:
-
-* reduces hallucination risk,
-* improves retrieval grounding,
-* and mirrors real-world enterprise RAG pipelines.
+The memory layer is intentionally small and conservative. It improves questions like "explain that in simpler words" or "give me an example of the second one" while preserving the current-question-first behavior of the agent.
 
 ---
 
-#### 4. Modular Agent Design
+## Ingestion Workflow
 
-Retrieval, routing, and generation are isolated into composable nodes, allowing future expansion into:
+```mermaid
+sequenceDiagram
+    participant UI as Streamlit Setup
+    participant Agent as initialize_agent
+    participant Loader as WebBaseLoader
+    participant Splitter as Text Splitter
+    participant Embedder as HuggingFace Embeddings
+    participant DB as AstraDB/Cassandra
 
-* hybrid retrieval,
-* tool-calling agents,
-* memory systems,
-* reranking pipelines,
-* or multi-agent execution.
+    UI->>Agent: Groq key, Astra credentials, URLs
+    Agent->>Loader: load documents
+    Loader-->>Agent: raw web documents
+    Agent->>Splitter: chunk documents
+    Splitter-->>Agent: document chunks
+    Agent->>Embedder: create embeddings
+    Embedder-->>Agent: vectors
+    Agent->>DB: replace collection documents
+    DB-->>Agent: retriever-ready vectorstore
+    Agent-->>UI: compiled LangGraph app
+```
 
 ---
 
-## Tech Stack & Tools
+## Core Modules
 
-| Category     | Technologies                                | Purpose                                   |
-| ------------ | ------------------------------------------- | ----------------------------------------- |
-| Core         | Python                                      | Primary application language              |
-| Core         | LangGraph                                   | Stateful agent workflow orchestration     |
-| Core         | LangChain                                   | Retrieval, prompts, and tool abstractions |
-| Core         | Groq                                        | High-speed LLM inference                  |
-| Core         | Streamlit                                   | Interactive frontend interface            |
-| State/Data   | AstraDB                                     | Managed vector database                   |
-| State/Data   | Apache Cassandra                            | Vector storage backend                    |
-| State/Data   | HuggingFace Embeddings (`all-MiniLM-L6-v2`) | Semantic embedding generation             |
-| State/Data   | Wikipedia API Wrapper                       | External live knowledge retrieval         |
-| AI/ML        | Sentence Transformers                       | Embedding model infrastructure            |
-| DevOps/Tools | Streamlit Runtime                           | Local development environment             |
-| DevOps/Tools | `requirements.txt`                          | Dependency management                     |
-| DevOps/Tools | Python Virtual Environment                  | Environment isolation                     |
+| File | Responsibility |
+| --- | --- |
+| `app.py` | Streamlit UI, setup flow, chat rendering, session message storage, graph invocation |
+| `agent.py` | High-level initialization of vectorstore, retriever, router, wiki tool, and graph |
+| `graph.py` | LangGraph state, routing edges, retrieval/search nodes, chat node, generation prompts |
+| `router.py` | Structured query classification with `vectorstore`, `wiki_search`, and `general_chat` labels |
+| `vectorstore.py` | URL loading, chunking, embeddings, AstraDB/Cassandra lifecycle, retriever setup |
+| `wiki_tool.py` | Wikipedia retrieval tool creation |
+| `ui.py` | Streamlit styling and reusable UI rendering helpers |
+| `requirements.txt` | Python dependency list |
+
+---
+
+## State Model
+
+The graph passes a typed state object between nodes:
+
+```text
+GraphState
+├── question       current user message
+├── generation     final assistant output when available
+├── documents      retrieved LangChain documents
+├── source         selected response source
+└── chat_history   recent in-session messages for optional continuity
+```
+
+The `source` field is used by the UI to label the response path. The `chat_history` field is not persistent memory; it is a small prompt helper.
+
+---
+
+## Tech Stack
+
+| Category | Technologies | Purpose |
+| --- | --- | --- |
+| App | Python, Streamlit | Local interactive chat UI |
+| Orchestration | LangGraph | Stateful graph workflow |
+| AI Framework | LangChain | Retrievers, tools, prompts, documents |
+| LLM | Groq, Llama 3.1 8B Instant | Routing and answer generation |
+| Vector Data | AstraDB, Cassandra | Managed vector storage |
+| Embeddings | HuggingFace, Sentence Transformers | Semantic chunk embeddings |
+| External Knowledge | Wikipedia API Wrapper | Factual fallback retrieval |
+| Config | `.env`, Streamlit inputs | Runtime credentials and URL setup |
 
 ---
 
@@ -187,7 +260,6 @@ Retrieval, routing, and generation are isolated into composable nodes, allowing 
 
 ```text
 project/
-│
 ├── app.py
 ├── agent.py
 ├── graph.py
@@ -195,18 +267,9 @@ project/
 ├── vectorstore.py
 ├── wiki_tool.py
 ├── ui.py
-└── requirements.txt
+├── requirements.txt
+└── README.md
 ```
-
-| File             | Responsibility                              |
-| ---------------- | ------------------------------------------- |
-| `app.py`         | Streamlit application entrypoint            |
-| `agent.py`       | High-level system initialization            |
-| `graph.py`       | LangGraph orchestration workflow            |
-| `router.py`      | Query routing and structured classification |
-| `vectorstore.py` | Ingestion, embeddings, and retrieval setup  |
-| `wiki_tool.py`   | Wikipedia retrieval tool integration        |
-| `ui.py`          | UI rendering and styling helpers            |
 
 ---
 
@@ -219,27 +282,23 @@ git clone <repository_url>
 cd <repository_name>
 ```
 
----
-
 ### 2. Create Virtual Environment
 
 ```bash
 python -m venv .venv
 ```
 
-#### macOS / Linux
+macOS / Linux:
 
 ```bash
 source .venv/bin/activate
 ```
 
-#### Windows
+Windows:
 
 ```bash
 .venv\Scripts\activate
 ```
-
----
 
 ### 3. Install Dependencies
 
@@ -247,17 +306,21 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
----
-
 ### 4. Configure Credentials
 
-You will need:
+You need:
 
-* Groq API Key
-* AstraDB Token
-* AstraDB Database ID
+- Groq API key
+- AstraDB token
+- AstraDB database ID
 
----
+You can enter them in the UI or upload a `.env` file containing:
+
+```bash
+GROQ_API_KEY=...
+ASTRA_DB_TOKEN=...
+ASTRA_DB_ID=...
+```
 
 ### 5. Run Application
 
@@ -267,62 +330,61 @@ streamlit run app.py
 
 ---
 
-## Retrieval Workflow
+## Default Knowledge Base
 
-```mermaid
-sequenceDiagram
+The app starts with three example URLs from Lilian Weng's blog:
 
-    participant U as User
-    participant R as Router Agent
-    participant V as Vectorstore
-    participant W as Wikipedia Tool
-    participant G as Generation Engine
+- LLM-powered autonomous agents
+- Prompt engineering
+- Adversarial attacks on LLMs
 
-    U->>R: Submit Question
+You can replace these with any valid HTTP/HTTPS URLs during setup. Reinitializing rebuilds the current AstraDB vector collection for the active configuration.
 
-    alt Domain-specific query
-        R->>V: Semantic Retrieval
-        V-->>G: Retrieved Context
-    else General knowledge query
-        R->>W: Wikipedia Search
-        W-->>G: Search Context
-    end
+---
 
-    G-->>U: Grounded Response
+## Design Notes
+
+### Why Use LangGraph?
+
+The app is not a single prompt wrapper. LangGraph makes each branch explicit and keeps state transitions inspectable:
+
+```text
+message -> route -> retrieve/search/chat -> generate -> response
 ```
+
+This makes the workflow easier to test, debug, and extend.
+
+### Why Keep Memory Ephemeral?
+
+The current memory layer is designed for conversational usefulness, not user profiling. It gives the assistant enough context to answer follow-ups naturally while avoiding persistence, database schema changes, privacy surprises, or history-based routing drift.
+
+### Why Separate Routing From Generation?
+
+Routing decides where evidence should come from. Generation decides how to answer. Keeping those responsibilities separate prevents previous chat turns from accidentally pushing the agent toward the wrong retrieval path.
 
 ---
 
 ## Future Roadmap
 
-### 🔄 Hybrid Retrieval Fusion
+### Hybrid Retrieval Fusion
 
 Combine vector similarity retrieval with external search retrieval using confidence-weighted ranking and reranking pipelines.
 
-### 🧠 Conversational Memory Engine
+### Persistent Memory Options
 
-Introduce persistent short-term and long-term memory layers for contextual multi-turn conversations.
+Add opt-in persistent memory with user/session isolation, retention controls, and clear privacy boundaries.
 
-### 🚀 FastAPI + Mobile Integration
+### FastAPI Backend
 
-Refactor the runtime into a dedicated FastAPI backend service for integration with Flutter or React Native mobile applications.
+Move the graph runtime behind a FastAPI service for React, Flutter, or mobile integration.
 
-### 📊 Observability & Evaluation
+### Observability & Evaluation
 
-Add:
+Add tracing, token analytics, retrieval scoring, and automated RAG evaluation tests.
 
-* tracing,
-* token analytics,
-* retrieval scoring,
-* and automated RAG evaluation pipelines.
+### Retrieval Guardrails
 
-### 🛡️ Retrieval Guardrails
-
-Implement:
-
-* hallucination detection,
-* source attribution,
-* and retrieval validation layers for safer production deployment.
+Add source attribution, retrieval validation, hallucination checks, and answer confidence signals.
 
 ---
 
@@ -330,11 +392,12 @@ Implement:
 
 This repository demonstrates practical engineering patterns used in modern AI systems:
 
-* retrieval-augmented generation (RAG),
-* graph-based orchestration,
-* structured LLM routing,
-* semantic retrieval pipelines,
-* and modular AI workflow design.
+- retrieval-augmented generation,
+- graph-based orchestration,
+- structured LLM routing,
+- ephemeral conversational context,
+- semantic retrieval pipelines,
+- tool-backed answer generation,
+- modular AI workflow design.
 
-It reflects an understanding of how production-grade AI systems move beyond simple prompting into orchestrated, stateful, tool-enabled architectures.
-
+It shows how production-style AI applications move beyond simple prompting into orchestrated, stateful, tool-enabled systems.
