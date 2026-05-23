@@ -9,12 +9,20 @@ from graph import build_graph
 
 def initialize_agent(
     groq_api_key,
+    astra_token,
+    astra_db_id,
     urls,
 ):
 
-    vectorstore = create_vectorstore(urls)
+    vectorstore = create_vectorstore(
+        urls=urls,
+        astra_token=astra_token,
+        astra_db_id=astra_db_id,
+    )
 
-    retriever = vectorstore.as_retriever()
+    retriever = vectorstore.as_retriever(
+        search_kwargs={"k": 6},
+    )
 
     router = create_router(
         groq_api_key,
