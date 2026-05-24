@@ -178,6 +178,8 @@ flowchart TD
 
 This graph shows the agent's internal execution path: routing happens first, tool/context work happens only when needed, and recent chat history is added as optional prompt context after routing.
 
+`general_chat` intentionally bypasses context assembly because it does not retrieve documents. It uses the current message plus optional recent session history and returns a direct friendly response.
+
 ---
 
 ## Query Routing Logic
