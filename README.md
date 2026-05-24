@@ -1,4 +1,4 @@
-# Agentic RAG Assistant
+# Agentic RAG System
 
 An agentic retrieval-augmented chat system that routes each user message to the right execution path, retrieves context when needed, and answers through a LangGraph-orchestrated workflow.
 
